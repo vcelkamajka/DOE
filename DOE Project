@@ -1,18 +1,19 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-import math
 import numpy as np
 import scipy
 from statsmodels.graphics.gofplots import qqplot # for qq plot
 from scipy.stats.distributions import norm # for qq plot
 from scipy.stats import halfnorm
-from scipy.stats import norm
 from scipy.stats import f_oneway # anova
-from mpl_toolkits.mplot3d import Axes3D
+from scipy.stats import shapiro # test for normality (shapiro-wilks test)
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
 from statsmodels.stats.outliers_influence import variance_inflation_factor
+import statsmodels.api as sm
+
+np.set_printoptions(legacy='1.25') # removes the np.float in output
 
 dash = '------------------------------------------------------------------------------'
 print(dash)
@@ -92,7 +93,7 @@ ax.scatter(file_read['CFAE Conc. (mM)'], file_read['% Glycerol'], file_read['% C
 ax.set_xlabel('CFAE Conc. (mM)')
 ax.set_ylabel('% Glycerol')
 ax.set_zlabel('% Castor Oil')
-plt.show()
+
 
 # Need to know model the data with regression and then generate data on the regression lines.
 # https://scikit-learn.org/stable/modules/preprocessing.html#polynomial-features
@@ -145,6 +146,7 @@ print(dash)
 for i in range(len(vif_data['VIF'])):
     if vif_data['VIF'][i] > 5:
         print(f'VIF above 5 for {vif_data['Feature'][i]}: ',round(vif_data['VIF'][i], 2)) # index of column returned for VIF > 5
+        print(f'There is likely covariance with {vif_data['Feature'][i]}!')
     if vif_data['VIF'][i] < 5:
         print(f'VIF below 5 for {vif_data['Feature'][i]}: ',round(vif_data['VIF'][i], 2))
 
@@ -179,7 +181,7 @@ for i, z_value in enumerate(z_range): # ultimately returns (index, value) -> (0,
 
 fig.colorbar(contour, ax=axes, orientation='horizontal', label=response)
 plt.savefig('CFAE DOEs.png')
-plt.show()
+
 
 fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
 a = ax.plot_surface(x1, x2, y_pred, cmap='inferno')
@@ -189,7 +191,7 @@ ax.set_zlabel('% Quercetin Encapsulation')
 ax.set_title('CFAE Conc. (mM) vs. % Glycerol')
 # fig.colorbar(a, shrink=0.5, label = '% Quercetin Encapsulation') # the color bar maps to the colour map of response
 # obsolete as the z axis is the response
-plt.show()
+
 
 # Make a list of the responses from the predicted variables.
 
@@ -231,7 +233,25 @@ data = [anova_file['R1'], anova_file['R2'], anova_file['R3'], anova_file['R4'], 
 plt.boxplot(data, tick_labels = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8'], vert = False)
 plt.xlabel('% Quercetin Encapsulation')
 plt.ylabel('DOE Runs')
+ax.set_xlim(0.35,1)
+
+plt.show()
+
+print(dash)
+
+# Shapiro-Wilk test for normality
+
+W, p_value = shapiro(file_read['% Quercetin Encapsulation'])
+print(f'The computed W value is {W:.3} and p value is {p_value:.4}')
+if p_value > 0.05:
+    print('Data is normally distributed.')
+else:
+    print('Data is not normally distributed.')
+
+sm.qqplot(file_read['% Quercetin Encapsulation'], line ='s')
+plt.title('Shapiro-Wilk Test for Normality')
 plt.show()
 
 
 print(dash)
+
