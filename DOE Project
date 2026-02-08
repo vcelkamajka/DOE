@@ -126,6 +126,7 @@ print(f'Correlation coefficient is {corr_coeff:.4f}') # as there is no centre po
 print(f'Mean squared error is {mse:.4f}')
 print(f'Root mean squared error is {mse**0.5:.4f}')
 print("Intercept:", model.intercept_)
+
 print(dash)
 
 # VIF of 1 is ideal (no multicollinearity)
@@ -195,10 +196,24 @@ plt.show()
 x_factor = 'CFAE Conc. (mM)' # reminder that x factor is cfae.
 Y = file_read[response] # quercetin encapsulation
 
-# ANOVA test for variance ---------------------------------------------------------------------
+# ANOVA test for variance - this is not really relevant as its not tailored to the response so the means are just the high, low values which is useless.
+# The anova should look at each ROW, rather than column - however, there are no duplicate runs, with duplicates it will work.
+
 print(dash)
 
-f_statistic, p_value = f_oneway(file_read['CFAE Conc. (mM)'], file_read['% Glycerol'], file_read['% Castor Oil'])
+anova_list = []
+anova_file = pd.read_csv('CFAE ANOVA.csv')
+
+
+#f_statistic, p_value = f_oneway(file_read['CFAE Conc. (mM)'], file_read['% Glycerol'], file_read['% Castor Oil'])
+#for i in range(0,8):
+#    anova_list.append(anova_file.iloc[i,:])
+
+
+#print(anova_list)
+
+f_statistic, p_value = f_oneway(anova_file['R1'], anova_file['R2'], anova_file['R3'], anova_file['R4'], anova_file['R5'], anova_file['R6'], anova_file['R7'], anova_file['R8'])
+
 print(f'F-statistic for ANOVA: {f_statistic:.4f}')
 print(f'p-value for ANOVA: {p_value:.10f}')
 
@@ -206,5 +221,17 @@ if p_value < 0.05:
     print('Mean(s) are non-equal!')
 else:
     print('Mean(s) are equal!')
+
+fig = plt.figure(figsize = (10,10))
+ax = fig.add_subplot(111)
+ax.set_title('Box Plot of Each Run and %QE')
+
+data = [anova_file['R1'], anova_file['R2'], anova_file['R3'], anova_file['R4'], anova_file['R5'], anova_file['R6'], anova_file['R7'], anova_file['R8']]
+
+plt.boxplot(data, tick_labels = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8'], vert = False)
+plt.xlabel('% Quercetin Encapsulation')
+plt.ylabel('DOE Runs')
+plt.show()
+
 
 print(dash)
