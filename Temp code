@@ -1,3 +1,5 @@
+https://stackoverflow.com/questions/74209739/displaying-4th-variable-as-colormap-on-3d-plot-in-python
+
 z_range = np.linspace(X[z_factor].min(), X[z_factor].max(), 30) # LINE 158
 
 [x1, x2, x3] = np.meshgrid(x_range, y_range, z_range) # creates combo of the three variables # LINE 161
