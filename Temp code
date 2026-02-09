@@ -39,6 +39,8 @@ surf = ax.plot_surface(X, Y, C, facecolors=fc)
 
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
+import matplotlib.cm as cm
 import numpy as np
 import scipy
 from statsmodels.graphics.gofplots import qqplot # for qq plot
@@ -208,7 +210,8 @@ for i, z_value in enumerate(z_range): # ultimately returns (index, value) -> (0,
     y_pred = model.predict(grid_poly).reshape(x1.shape) # predicts the response and converts into a 2D grid which we need for contour
 
 c = y_pred
-norm = Normalize(vmin=np.nmin(c), vmax=np.max(c))
+cmap = cm.turbo
+norm = Normalize(vmin=np.min(c), vmax=np.max(c))
 fc = cmap(norm(c))
 
 fig = plt.figure()
