@@ -2,6 +2,37 @@ https://stackoverflow.com/questions/74209739/displaying-4th-variable-as-colormap
 https://stackoverflow.com/questions/28324545/adding-a-4th-variable-to-a-3d-plot-in-python
 
 # Need to get x3 (z_factor) into an array -> use linspace and then ravel into the shape required.
+TEMP CODE BELOW 
+x_range = np.linspace(X[x_factor].min(), X[x_factor].max(), 30) # gets 30 points from min to max
+y_range = np.linspace(X[y_factor].min(), X[y_factor].max(), 30)
+z_range = np.linspace(X[z_factor].min(), X[z_factor].max(), 900) # LINE 158
+
+x3 = z_range.ravel()
+[x1, x2] = np.meshgrid(x_range, y_range) # creates combo of the two variables
+print(x3.ndim)
+print(x1.shape)
+z_3 = np.reshape(x3, (-1,30))
+print(z_3.shape)
+
+
+fig, axes = plt.subplots(111, figsize=(15, 5)) # LINE 167 : creates a singular plot (1 row, 1 column, index 1)
+
+for i, z_value in enumerate(z_range): # ultimately returns (index, value) -> (0, 20%) ...
+    flat = pd.DataFrame({x_factor: x1.ravel(), y_factor: x2.ravel(), z_factor: z_3.ravel()}) # np.full matches data size of x1 size and then puts in the z_value for the values
+    grid_poly = poly.transform(flat) # transforms to quadratic regression
+    y_pred = model.predict(grid_poly).reshape(x1.shape) # predicts the response and converts into a 2D grid which we need for contour
+
+c = y_pred
+cmap = mpl.colormaps['viridis']
+norm = Normalize(vmin=np.min(c), vmax=np.max(c))
+fc = cmap(norm(c))
+
+fig = plt.figure()
+ax = fig.add_subplot(221, projection='3d')
+
+# plot the surface for 4th dimension to get its colormap (facecolors)
+surf = ax.plot_surface(x1, x2, z_3, facecolors=fc)
+
 --------------------------------------------------------------------------------------------------------
 z_range = np.linspace(X[z_factor].min(), X[z_factor].max(), 30) # LINE 158
 x3 = z_range.ravel()
