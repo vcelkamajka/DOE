@@ -1,0 +1,11 @@
+z_range = np.linspace(X[z_factor].min(), X[z_factor].max(), 30) # LINE 158
+
+[x1, x2, x3] = np.meshgrid(x_range, y_range, z_range) # creates combo of the three variables # LINE 161
+
+fig, ax = plt.subplots(subplot_kw={"projection": "3d"}) # LINE 186
+a = ax.plot_surface(x1, x2, x3, cmap='inferno')
+ax.set_xlabel('CFAE Conc. (mM)')
+ax.set_ylabel('% Glycerol')
+ax.set_zlabel('% Castor Oil')
+ax.set_title('Response Surface of % Quercetin Encaspsulation')
+fig.colorbar(a, shrink=0.5, label = '% Quercetin Encapsulation') # the color bar maps to the colour map of response
