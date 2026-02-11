@@ -12,6 +12,11 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 import statsmodels.api as sm
+from statsmodels.formula.api import ols
+from matplotlib import cm
+from matplotlib.colors import Normalize
+from scipy.stats import tukey_hsd
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 np.set_printoptions(legacy='1.25') # removes the np.float in output
 
@@ -78,18 +83,25 @@ for i in range(len(rank_list)):
 # print(theory_z_list)
 # print(cum_prob_list)
 
-plt.scatter(abs_average, theory_z_list)
 
+abs_noise = np.linspace(0.05, 0.30, 30)
+z = halfnorm.rvs(loc = np.mean(abs_average), scale = np.std(abs_average), size = 30) # not sure if necessary - adds noise.
+
+plt.scatter(abs_noise, z, label = 'Simulated Noise')
+plt.scatter(abs_average, theory_z_list, label = 'CFAE DOE', marker = '^')
+
+plt.legend()
 plt.xlabel('Absolute Average (H-L)')
 plt.ylabel('Theoretical Z-Value')
 plt.show()
+
 
 # https://www.geeksforgeeks.org/machine-learning/optimizing-machine-learning-models-using-response-surface-methodology/
 # This just shows the design of the three factor DOE, no useful information.
 
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
-ax.scatter(file_read['CFAE Conc. (mM)'], file_read['% Glycerol'], file_read['% Castor Oil'], c='r', marker='o')
+ax.scatter(file_read['CFAE Conc. (mM)'], file_read['% Glycerol'], file_read['% Castor Oil'], c='r', marker='o', s = 100)
 ax.set_xlabel('CFAE Conc. (mM)')
 ax.set_ylabel('% Glycerol')
 ax.set_zlabel('% Castor Oil')
@@ -115,7 +127,9 @@ poly = PolynomialFeatures(1) # quadratic regression selected (1: linear, 2: quad
 x_poly = poly.fit_transform(X) # gives the regression values (x, x1, x1*x2 ...)
 model = LinearRegression() # linear regression model.
 model.fit(x_poly, Y) # fits the data
-print('Model coefficients : ', model.coef_) # Beta coefficients
+print('Model coefficients: ', model.coef_) # Beta coefficients
+print("Intercept:", model.intercept_)
+
 
 # Correlation coefficient of model fit / as there is no centre point - higher polynomial = higher r2 !!!
 
@@ -126,7 +140,7 @@ mse = mean_squared_error(Y, y_pred_flat)
 print(f'Correlation coefficient is {corr_coeff:.4f}') # as there is no centre point - higher polynomial = higher r2 also cannot utilise quadratic or higher
 print(f'Mean squared error is {mse:.4f}')
 print(f'Root mean squared error is {mse**0.5:.4f}')
-print("Intercept:", model.intercept_)
+
 
 print(dash)
 
@@ -192,11 +206,32 @@ ax.set_title('CFAE Conc. (mM) vs. % Glycerol')
 # fig.colorbar(a, shrink=0.5, label = '% Quercetin Encapsulation') # the color bar maps to the colour map of response
 # obsolete as the z axis is the response
 
+# 3D Surface response plot ---------------------------------------
 
-# Make a list of the responses from the predicted variables.
+x_range = np.linspace(X[x_factor].min(), X[x_factor].max(), 30) # gets 30 points from min to max
+y_range = np.linspace(X[y_factor].min(), X[y_factor].max(), 30)
+z_range2 = np.linspace(X[z_factor].min(), X[z_factor].max(), 30)
 
-x_factor = 'CFAE Conc. (mM)' # reminder that x factor is cfae.
-Y = file_read[response] # quercetin encapsulation
+c = y_pred
+
+fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+x3 = np.full_like(x1, z_range2) # Converts to the same array shape!!!!!!!!!!!!!!!
+
+norm = Normalize(vmin = c.min(), vmax = c.max())
+colours = cm.inferno(norm(c))
+
+surface = ax.plot_surface(x1, x2, x3, facecolors = colours, linewidth = 0, antialiased = True, shade = False)
+
+mappable = cm.ScalarMappable(norm = norm, cmap = 'inferno')
+mappable.set_array(c)
+
+fig.colorbar(mappable, ax = ax, shrink = 0.5, label = '% Quercetin Encapsulation')
+
+ax.set_xlabel('CFAE Conc. (mM)')
+ax.set_ylabel('% Glycerol')
+ax.set_zlabel('% Castor Oil')
+
+plt.show()
 
 # ANOVA test for variance - this is not really relevant as its not tailored to the response so the means are just the high, low values which is useless.
 # The anova should look at each ROW, rather than column - however, there are no duplicate runs, with duplicates it will work.
@@ -205,7 +240,6 @@ print(dash)
 
 anova_list = []
 anova_file = pd.read_csv('CFAE ANOVA.csv')
-
 
 #f_statistic, p_value = f_oneway(file_read['CFAE Conc. (mM)'], file_read['% Glycerol'], file_read['% Castor Oil'])
 #for i in range(0,8):
@@ -235,14 +269,24 @@ plt.xlabel('% Quercetin Encapsulation')
 plt.ylabel('DOE Runs')
 ax.set_xlim(0.35,1)
 
-plt.show()
-
 print(dash)
+
+# Tukey test # Based off of box plot data, i.e., we need duplicates --------------
+
+# Less informative tukey, still good but doesnt return True/False.
+#tukey = tukey_hsd(*data) # *arg returns the whole list, so you dont need to do: data[0], data[1] ...
+#print(tukey)
+
+tukey_anova = pd.read_csv('CFAE ANOVA TUKEY.csv')
+tukey_stat = pairwise_tukeyhsd(endog = tukey_anova['% QE'], groups = tukey_anova['Run'], alpha = 0.05)
+print(tukey_stat)
+
+# https://appliedpythonprogramming.com/stats_models/#tukeys-hsd-with-scipy
 
 # Shapiro-Wilk test for normality
 
 W, p_value = shapiro(file_read['% Quercetin Encapsulation'])
-print(f'The computed W value is {W:.3} and p value is {p_value:.4}')
+print(f'The computed W value is {W:.3} and p-value is {p_value:.4}')
 if p_value > 0.05:
     print('Data is normally distributed.')
 else:
@@ -252,6 +296,7 @@ sm.qqplot(file_read['% Quercetin Encapsulation'], line ='s')
 plt.title('Shapiro-Wilk Test for Normality')
 plt.show()
 
-
 print(dash)
+
+
 
