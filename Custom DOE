@@ -26,8 +26,7 @@ dash = '------------------------------------------------------------------------
 print(dash)
 
 #--------------------------------------------------
-# Custom DOE that works on any given values - only gives graphs for 2 and 3 factors atm.
-# Complete your DOE file to begin. | col 0 = variable 1, col 1 - n = variables, col n - 1 = response | Max of 3 variables CURRENTLY
+# Complete your DOE file to begin. | col 0 = variable 1, col 1 - n = variables, col n - 1 = response | Max of 3 variables for visualisation CURRENTLY.
 # Works w/ > 3 factors, but not for any visuals - only VIF, correlation matrix and regression equations.
 #--------------------------------------------------
 
@@ -50,7 +49,6 @@ for i in range(len(file.columns)-1):
 x = file[factors]
 y = file[response]
 
-
 for n in range(1,4):
     print('Assuming', n, 'order')
     poly = PolynomialFeatures(n, include_bias=False)
@@ -66,15 +64,18 @@ for n in range(1,4):
     print("Intercept:", model.intercept_)
     print(f'Correlation coefficient is: {r2:.4f}')
     print(f'Root mean squared error is {mse ** 0.5:.4f}')
+    print(f'Max response: {y_pred.max():.2f}')
+    print(f'Min response: {y_pred.min():.2f}')
     print(dash)
 
-    # Source: https://machinelearningmastery.com/calculate-feature-importance-with-python/
+    #https://machinelearningmastery.com/calculate-feature-importance-with-python/
+
+    poly_feature_names = poly.get_feature_names_out(x.columns)
 
     importance = model.coef_
     for i, v in enumerate(importance):
         print('Feature: %0d, Score: %.5f' % (i, v))
 
-    poly_feature_names = poly.get_feature_names_out(x.columns)
     print("Feature names:", poly_feature_names)
 
     fig, ax = plt.subplots(constrained_layout=True)
@@ -95,10 +96,36 @@ for n in range(1,4):
 
 reg = ['First Order', 'Second Order', 'Third Order']
 
+if (len(file.columns) -1) == 1: # 1 variable
+
+    x0 = np.linspace(file.iloc[:, 0].min(), file.iloc[:, 0].max(), 30).ravel()
+    flat = x0.reshape(-1,1)
+
+    fig, axes = plt.subplots(1, 3, figsize=(13, 7))
+    for n in range(0, 3):
+        poly = PolynomialFeatures(n + 1, include_bias=False)
+        x_poly_fit = poly.fit_transform(x.to_numpy())
+        model = LinearRegression()
+        model.fit(x_poly_fit, y)
+        x_poly = poly.transform(flat)
+
+        pred = model.predict(x_poly)
+
+        axes[n].set_xlabel(file.columns[0])
+        axes[n].set_ylabel(file.columns[-1])
+        axes[n].set_title(reg[n])
+
+        plot = axes[n].scatter(flat, pred)
+
+    cursor = MultiCursor(fig.canvas, axes=axes, color='k', vertOn=True, horizOn=True)
+
+plt.show()
+
+
 if (len(file.columns) -1) == 3: # 3 variables
     for n in range(0, 3):
         poly = PolynomialFeatures(n + 1, include_bias=False)
-        x_train = poly.fit_transform(x)
+        x_train = poly.fit_transform(x.to_numpy())
         model = LinearRegression()
         model.fit(x_train, y)
 
@@ -113,7 +140,7 @@ if (len(file.columns) -1) == 3: # 3 variables
         a = [x1,x2,x3]
         flat = np.column_stack([x1.ravel(), x2.ravel(), x3.ravel()])
 
-        res = poly.fit_transform(flat)
+        res = poly.transform(flat)
         c = model.predict(res)
 
         fig, ax = plt.subplots(subplot_kw ={'projection': '3d'})
@@ -133,7 +160,7 @@ if (len(file.columns) -1) == 3: # 3 variables
 
     plt.show()
 
-if len(file.columns) - 1 == 2:
+if len(file.columns) - 1 == 2: # 2 variables
     # x, y will form the axes and the response will be coloured (contourf plot)
 
     x0 = np.linspace(file.iloc[:,0].min(), file.iloc[:,0].max(), 15).ravel()
@@ -142,14 +169,12 @@ if len(file.columns) - 1 == 2:
     x_flat, y_flat = np.meshgrid(x0, x1)
     flat = np.column_stack([x_flat.ravel(), y_flat.ravel()])
 
-    x_train = x
-
     # training data -> fit transfrom
     # testing and new data -> transform
     fig, axes = plt.subplots(1, 3, figsize=(13, 7))
     for n in range(0, 3):
         poly = PolynomialFeatures(n + 1, include_bias=False)
-        x_poly_fit = poly.fit_transform(x_train)
+        x_poly_fit = poly.fit_transform(x.to_numpy())
         x_poly = poly.transform(flat)
 
         model = LinearRegression()
@@ -169,7 +194,15 @@ if len(file.columns) - 1 == 2:
 
     plt.show()
 
-# Source: https://www.datacamp.com/tutorial/variance-inflation-factor
+# WIP -------------------------------------------------------------
+#if (len(file.columns) -1) >= 4: # 4 or more variables
+    # factors 1 - n are cycled through in varying 3D graphs
+    # e.g., time (x) vs temp (y) vs catalyst (z) vs
+# WIP -------------------------------------------------------------
+
+
+
+
 
 correl_data = x
 corr_matrix = correl_data.corr()
@@ -178,21 +211,22 @@ sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', vmin=-1, vmax=1)
 plt.title('Pairwise Correlation Matrix')
 plt.show()
 
-vif_factors = x
-vif_df = pd.DataFrame()
-vif_df['Features'] = vif_factors.columns
+if len(file.columns) > 2: # prevents error from single factor runs
+    vif_factors = x
+    vif_df = pd.DataFrame()
+    vif_df['Features'] = vif_factors.columns
 
-vif_df['VIF'] = [variance_inflation_factor(vif_factors, i) for i in range(len(vif_factors.columns))] # VIF is equal to the VIF of the factors and the data indices
-print(vif_df)
+    vif_df['VIF'] = [variance_inflation_factor(vif_factors, i) for i in range(len(vif_factors.columns))] # VIF is equal to the VIF of the factors and the data indices
+    print(vif_df)
 
-print(dash)
-for i in range(len(vif_df['VIF'])):
-    if vif_df['VIF'][i] > 5:
-        print(f'VIF above 5 for {vif_df['Features'][i]}: ',round(vif_df['VIF'][i], 2)) # index of column returned for VIF > 5
-        print(f'There is likely covariance with {vif_df['Features'][i]}!')
-    if vif_df['VIF'][i] < 5:
-        print(f'VIF below 5 for {vif_df['Features'][i]}: ',round(vif_df['VIF'][i], 2))
-print(dash)
+    print(dash)
+    for i in range(len(vif_df['VIF'])):
+        if vif_df['VIF'][i] > 5:
+            print(f'VIF above 5 for {vif_df['Features'][i]}: ',round(vif_df['VIF'][i], 2)) # index of column returned for VIF > 5
+            print(f'There is covariance with {vif_df['Features'][i]}!')
+        if vif_df['VIF'][i] < 5:
+            print(f'VIF below 5 for {vif_df['Features'][i]}: ',round(vif_df['VIF'][i], 2))
+    print(dash)
 
 W, p_value = shapiro(file[file.columns[-1]])
 
