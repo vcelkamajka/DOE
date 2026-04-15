@@ -9,6 +9,7 @@ from scipy.stats import f_oneway # anova
 from scipy.stats import shapiro # test for normality (shapiro-wilks test)
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
+from mpl_toolkits import mplot3d
 from sklearn.metrics import mean_squared_error, r2_score
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 import statsmodels.api as sm
@@ -26,7 +27,7 @@ dash = '------------------------------------------------------------------------
 print(dash)
 
 #--------------------------------------------------
-# Complete your DOE file to begin. | col 0 = variable 1, col 1 - n = variables, col n - 1 = response | Max of 3 variables for visualisation CURRENTLY.
+# Complete your DOE file to begin. | col 0 = variable 1, col 1 - n = variables, col n - 1 = response | Max of 3 variables CURRENTLY
 # Works w/ > 3 factors, but not for any visuals - only VIF, correlation matrix and regression equations.
 #--------------------------------------------------
 
@@ -115,7 +116,9 @@ if (len(file.columns) -1) == 1: # 1 variable
         axes[n].set_ylabel(file.columns[-1])
         axes[n].set_title(reg[n])
 
-        plot = axes[n].scatter(flat, pred)
+        plot = axes[n].scatter(flat, pred, label = 'Generated Points')
+        plot = axes[n].scatter(x,y, color = 'red', marker = 's', label = 'Data Points')
+        axes[n].legend()
 
     cursor = MultiCursor(fig.canvas, axes=axes, color='k', vertOn=True, horizOn=True)
 
@@ -187,18 +190,35 @@ if len(file.columns) - 1 == 2: # 2 variables
 
         # need to reshape in order to fit x and y values
 
-        plot = axes[n].contourf(x_flat, y_flat, pred.reshape(x_flat.shape), levels=50, cmap='turbo', )
+        plot = axes[n].contourf(x_flat, y_flat, pred.reshape(x_flat.shape), levels=50, cmap='inferno', )
+
+        # ADD 3D PLOT, X, Y = 2 VARIABLES AND Z = RESPONSE
+        # https://www.geeksforgeeks.org/python/3d-surface-plotting-in-python-using-matplotlib/
+
+        #fig = plt.figure()
+        #ax = plt.axes(projection = '3d')
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+
+        surf = ax.plot_surface(x_flat, y_flat, pred.reshape(x_flat.shape), cmap = 'inferno', edgecolor = 'none')
+        ax.set_xlabel(file.columns[0])
+        ax.set_ylabel(file.columns[1])
+        ax.set_zlabel(file.columns[-1])
+        ax.set_title(reg[n])
+        
+        # adds a colourmap (2D) below the surface response
+        cset = ax.contourf(x_flat, y_flat, pred.reshape(x_flat.shape), zdir = 'z', offset = np.min(pred.reshape(x_flat.shape)), cmap = 'inferno', levels = 25)
+
+        cbar = plt.colorbar(surf, label = file.columns[-1], orientation = 'vertical', ax = ax, shrink = 0.7)
 
     cbar = plt.colorbar(plot, label=file.columns[-1], orientation='horizontal', ax=axes)
     cursor = MultiCursor(fig.canvas, axes=axes, color='white', vertOn=True, horizOn=True)
 
     plt.show()
 
-# WIP -------------------------------------------------------------
 #if (len(file.columns) -1) >= 4: # 4 or more variables
     # factors 1 - n are cycled through in varying 3D graphs
     # e.g., time (x) vs temp (y) vs catalyst (z) vs
-# WIP -------------------------------------------------------------
+
 
 
 
