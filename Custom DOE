@@ -31,6 +31,7 @@ print(dash)
 #--------------------------------------------------
 # Complete your DOE file to begin. | col 0 = variable 1, col 1 - n = variables, col n - 1 = response | Max of 3 variables CURRENTLY
 # Works w/ > 3 factors, but not for any visuals - only VIF, correlation matrix and regression equations.
+# For any function Normalize: The vmin and vmax can be adjusted to fit your data - currently based on either y_pred or y (the response itself)
 #--------------------------------------------------
 
 file = pd.read_csv('DOE file.csv')
@@ -150,8 +151,12 @@ if (len(file.columns) -1) == 3: # 3 variables
         c = model.predict(res)
 
         fig, ax = plt.subplots(subplot_kw ={'projection': '3d'})
-
+        # for 3D plots, its best to use the predicted y value as the base values will make it too contrasted
         norm = Normalize(vmin = c.min(), vmax = c.max())
+        # ------------------------------------------------------------
+        # remove rash below in order to normalise the 3D plots - makes it harder to read.
+        #norm = mpl.colors.Normalize(vmin=0, vmax=100)
+        # ------------------------------------------------------------
         colours = cm.inferno(norm(c))
 
         surface = ax.scatter(x1, x2, x3, facecolors = colours, linewidth = 0, s = 300, marker = 'o', alpha = 1)
@@ -174,7 +179,7 @@ if (len(file.columns) -1) == 3: # 3 variables
 
         # need to reshape in order to fit x and y values
 
-        z_vals = [file.iloc[:,2].min(), file.iloc[:,2].mean(), file.iloc[:,2].max()]
+        z_vals = [file.iloc[:,2].min(), (file.iloc[:,2].max() + file.iloc[:,2].min()) / 2 , file.iloc[:,2].max()]
         x_factor = file.columns[0]
         y_factor = file.columns[1]
         z_factor = file.columns[2]
@@ -188,10 +193,14 @@ if (len(file.columns) -1) == 3: # 3 variables
             flat_poly = poly.transform(flat)
             y_pred = model.predict(flat_poly).reshape(x0.shape)
 
-            contour = axes[n].contourf(x0,x1,y_pred, levels=50, cmap='inferno')
+            norm = Normalize(vmin=y.min(), vmax=y.max())
+
+            contour = axes[n].contourf(x0,x1,y_pred, levels=15, cmap='inferno', norm=norm)
             axes[n].set_xlabel(x_factor)
             axes[n].set_ylabel(y_factor)
             axes[n].set_title(f'{z_factor} = {z_value:.2f}')
+
+            cbar = fig.colorbar(contour, label = file.columns[-1], orientation = 'horizontal', ax = axes[n])
         plt.show()
 
 
@@ -221,8 +230,9 @@ if len(file.columns) - 1 == 2: # 2 variables
         axes[n].set_title(reg[n])
 
         # need to reshape in order to fit x and y values
+        norm = Normalize(vmin=y.min(), vmax=y.max())
 
-        plot = axes[n].contourf(x_flat, y_flat, pred.reshape(x_flat.shape), levels=50, cmap='inferno', )
+        plot = axes[n].contourf(x_flat, y_flat, pred.reshape(x_flat.shape), levels=15, cmap='inferno', norm=norm)
 
         # https://www.geeksforgeeks.org/python/3d-surface-plotting-in-python-using-matplotlib/
 
@@ -239,7 +249,7 @@ if len(file.columns) - 1 == 2: # 2 variables
 
         cbar = plt.colorbar(surf, label = file.columns[-1], orientation = 'vertical', ax = ax, shrink = 0.7)
 
-    cbar = plt.colorbar(plot, label=file.columns[-1], orientation='horizontal', ax=axes)
+        cbar = plt.colorbar(plot, label=file.columns[-1], orientation='horizontal', ax=axes[n])
     cursor = MultiCursor(fig.canvas, axes=axes, color='white', vertOn=True, horizOn=True)
 
     plt.show()
