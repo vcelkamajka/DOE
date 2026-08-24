@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from IPython.display import display
 import pandas as pd
 import statsmodels.api as sm
 from itertools import combinations, permutations
@@ -270,12 +271,29 @@ class DOE:
         if len(sig_factors) < remaining_factors:
             print(f'Satisfactory amount of factors remain.')
 
+        selection_list = []
+        for features in sig_factors:
+            selection = self.results_df.loc[self.results_df['Feature'] == features]
+            display(selection)
 
+        to_drop = []
+        for n in range(len(sig_factors)-remaining_factors):
+            drop = input(f"Based on the results shown below, please drop {len(sig_factors)-remaining_factors} factors by inputting the axis value, e.g., x1 followed by x2... ")
+            to_drop.append(drop)
 
+        for drop in to_drop:
+            sig_factors = sig_factors.drop(drop)
+        
+        print('Remaining features:')
+        print(sig_factors)
 
         print('=' * 50)
-
-
+        self.sig_factors = sig_factors
+        return self.sig_factors
+    
+    def RSM(self):
+        # need to construct 2D &/or 3D RSM of results and maximise/minimise
+        
 
 
 t = DOE('test.csv')
@@ -284,4 +302,4 @@ t.main_effects()
 t.interaction_plots()
 t.get_trend(2)
 t.eliminate_factors()
-
+t.RSM()
