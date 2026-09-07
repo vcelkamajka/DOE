@@ -11,8 +11,10 @@ from scipy.stats import shapiro
 
 np.set_printoptions(legacy='1.25')
 
+
 class DOE:
-    def __init__(self, doe_file, x_cols=None, y_col=None,levels_list=None, all_response_list=None, full_df=None, interaction_cols=None):
+    def __init__(self, doe_file, x_cols=None, y_col=None, levels_list=None,
+                 all_response_list=None, full_df=None, interaction_cols=None):
         self.doe_file = doe_file
         self.df = pd.read_csv(self.doe_file)
         self.x_cols = x_cols
@@ -24,7 +26,7 @@ class DOE:
         self.interaction_cols = interaction_cols
 
         print(self.df)
-        print('='*100)
+        print('=' * 100)
 
         # assume that final col is response, rest are variables
         col_no = len(self.df.columns)
@@ -37,7 +39,6 @@ class DOE:
 
         # need to convert high, med. low to +1, 0, -1
         for col in self.x_cols:
-
             max_val = self.df[col].max()
             min_val = self.df[col].min()
 
@@ -51,7 +52,6 @@ class DOE:
         print('Converted DF:')
         print(self.df)
         print('=' * 100)
-
 
     def interactions(self):
         # get interactions which may be feasible, e.g.,
@@ -87,49 +87,82 @@ class DOE:
         if len(combo_list) == 0:
             print('No combinations selected.')
             self.full_df = self.df
-            pass
+            self.interaction_cols = None
         else:
+            interactions_df = pd.DataFrame()
+            self.interactions_df = interactions_df
+            self.new_cols = []
 
-            if len(combo_list) > 0:
-                interactions_df = pd.DataFrame()
-                self.interactions_df = interactions_df
-                self.new_cols = []
+            for combo in combo_list:
+                curr_combo = [*combo]
+                col1, col2 = curr_combo
+                new_col_name = col1 + ' x ' + col2
+                self.new_cols.append(new_col_name)
 
-                for combo in combo_list:
-                    # unpacks tuple into list -> (A, B) => [A, B]
-                    curr_combo = [*combo]
+                self.interactions_df[new_col_name] = self.df[col1] * self.df[col2]
 
-                    col1, col2 = curr_combo
-                    new_col_name = col1 + ' x ' + col2
-                    self.new_cols.append(new_col_name)
+            self.full_df = pd.concat([self.df, self.interactions_df], axis=1)
+            updated_order = [col for col in self.full_df if col != self.y_col] + [self.y_col]
+            self.full_df = self.full_df[updated_order]
 
-                    self.interactions_df[new_col_name] = self.df[col1] * self.df[col2]
+            print('=' * 100)
 
-                self.full_df = pd.concat([self.df, self.interactions_df], axis=1)
-                updated_order = [col for col in self.full_df if col != self.y_col] + [self.y_col]
-                self.full_df = self.full_df[updated_order]
+            col_no = len(self.full_df.columns)
+            x_col = []
+            for i in range(col_no - 1):
+                x_col.append(self.full_df.columns[i])
 
-                # self.full_df.to_csv('TEST.csv', index=False)
-                print('=' * 100)
+            self.interaction_cols = x_col
 
-                col_no = len(self.full_df.columns)
-                x_col = []
-                for i in range(col_no - 1):
-                    x_col.append(self.full_df.columns[i])
+            return self.full_df
 
-                self.interaction_cols = x_col
+    def _compute_vif(self, x_poly_df):
+        """VIF computed on the ACTUAL features fed into the model (x_poly_df),
+        not the raw pre-expansion factors - otherwise the numbers describe a
+        different feature set than the one actually fit."""
+        vif_data = pd.DataFrame()
+        vif_data['Feature'] = x_poly_df.columns
+        vif_data['VIF'] = [variance_inflation_factor(x_poly_df.values, i)
+                            for i in range(x_poly_df.shape[1])]
+        print('VIF ~1 = no multicollinearity, 1-5 = moderate, >5-10 = serious concern')
+        print(vif_data)
+        print('=' * 100)
+        return vif_data
 
-                return self.full_df
+    def _plot_pareto_coefficients(self, results_df, alpha, order_label=''):
+        """Sorted by ABSOLUTE coefficient value (largest effect first),
+        which is what a Pareto-style ranking actually requires - sorting on
+        the signed value hides large negative effects near the 'unimportant' end."""
+        temp_df = results_df[results_df['Feature'] != 'Intercept'].copy()
+        temp_df['AbsCoefficient'] = temp_df['Coefficient'].abs()
+        temp_df = temp_df.sort_values(by='AbsCoefficient', ascending=False)
 
-    def regression_model(self,alpha = 0.05):
+        colors = ['#1f77b4' if sig else '#f5424e' for sig in temp_df['Significant']]
+
+        fig, ax = plt.subplots(figsize=(10, 10))
+        bars = ax.bar(temp_df['Feature'], temp_df['Coefficient'], color=colors)
+        plt.ylabel('Coefficients')
+        plt.axhline(y=0, color='k', lw=0.5)
+        plt.xticks(rotation=90)
+        plt.title(f'Pareto of Effects {order_label} (blue = p < {alpha}, red = not significant)')
+        plt.tight_layout()
+
+        for rect, p_val in zip(bars, temp_df['P-value']):
+            height = rect.get_height()
+            va = 'bottom' if height >= 0 else 'top'
+            plt.text(rect.get_x() + rect.get_width() / 2.0, height, f'p={p_val:.3f}',
+                      ha='center', va=va)
+
+        plt.show()
+
+    def regression_model(self, alpha=0.05):
+
+        last_results_df = None
 
         for n in range(1, 3):
             poly = PolynomialFeatures(degree=n, include_bias=False)
 
             if self.interaction_cols is None:
-                print(self.x_cols)
-                print(self.full_df)
-
                 x_poly = poly.fit_transform(self.full_df[self.x_cols])
                 feature_names = poly.get_feature_names_out(self.x_cols)
             else:
@@ -146,6 +179,7 @@ class DOE:
 
             osl_model = sm.OLS(self.full_df[self.y_col], x_poly_with_intercept).fit()
             print(osl_model.summary())
+            print(f'Adjusted R^2: {osl_model.rsquared_adj:.4f} | Residual df: {osl_model.df_resid}')
 
             all_names = ['Intercept'] + list(feature_names)
             p_values = osl_model.pvalues.values
@@ -157,36 +191,15 @@ class DOE:
                 'P-value': np.round(p_values, 4)
             })
             results_df['Significant'] = results_df['P-value'] < alpha
-            results_df = results_df.sort_values(by='Coefficient', ascending=False)
+            last_results_df = results_df
 
-            temp_df = results_df[results_df['Feature'] != 'Intercept']
-
-            colors = []
-            for sig in temp_df['Significant']:
-                if sig:
-                    colors.append('#1f77b4')
-                else:
-                    colors.append('#f5424e')
-
-            fig, ax = plt.subplots(figsize=(10, 10))
-            bars = ax.bar(temp_df['Feature'], temp_df['Coefficient'], color=colors)
-            plt.ylabel('Coefficients')
-            plt.axhline(y=0, color='k', lw=0.5)
-            plt.xticks(rotation=90)
-            plt.title(f'Coefficients (blue = p < {alpha}, red = not significant)')
-            plt.tight_layout()
-
-            for rect, p_val in zip(bars, temp_df['P-value']):
-                height = rect.get_height()
-                va = 'bottom' if height >= 0 else 'top'
-                plt.text(rect.get_x() + rect.get_width() / 2.0, height, f'p={p_val:.3f}', ha='center', va=va)
-
-            plt.show()
+            self._plot_pareto_coefficients(results_df, alpha, order_label=f'| Order = {n}')
             print('=' * 100)
 
-            # need to now look at a residuals plot
+            self._compute_vif(x_poly_df)
+
             y_pred = model.predict(x_poly_df)
-            residuals = y_pred - self.df[self.y_col]
+            residuals = y_pred - self.full_df[self.y_col]
 
             plt.scatter(y_pred, residuals)
             plt.axhline(y=0, color='k', lw=0.5)
@@ -195,38 +208,43 @@ class DOE:
             plt.title(f'Residuals vs Fitted | Order = {n}')
             plt.show()
 
+        # keep a lookup of which base factors are involved in a significant
+        # interaction, so elimination can warn about breaking hierarchy
+        sig_terms = set(last_results_df.loc[last_results_df['Significant'], 'Feature'])
+        factors_in_sig_interactions = set()
+        for term in sig_terms:
+            if ' x ' in term or ' ' in term:
+                for part in term.replace(' x ', ' ').split(' '):
+                    if part in self.x_cols or (self.interaction_cols and part in self.interaction_cols):
+                        factors_in_sig_interactions.add(part)
+
         print('Based on the information provided, do you wish to eliminate any factors/interactions?:')
         remove_input = input('Input (Y) to remove factors/interactions or, (N) to continue: ')
         remain_list = []
-        if remove_input == 'Y':
-            if self.interaction_cols is not None:
-                for col in self.interaction_cols:
-                    print(col)
-                    add = input('')
-                    if add == 'Y':
-                        pass
-                    else:
-                        remain_list.append(col)
-            else:
-                for col in self.x_cols:
-                    print(col)
-                    add = input('')
-                    if add == 'Y':
-                        pass
-                    else:
-                        remain_list.append(col)
-        if remove_input == 'N':
-            if self.interaction_cols is None:
-                remain_list.extend(self.x_cols)
-            else:
-                remain_list.extend(self.interaction_cols)
+        source_cols = self.interaction_cols if self.interaction_cols is not None else self.x_cols
 
-        #results_df['Significant'] = results_df['P-value'] < alpha
+        if remove_input == 'Y':
+            for col in source_cols:
+                # show significance context so the decision isn't made blind
+                row = last_results_df[last_results_df['Feature'].str.contains(
+                    col.replace(' x ', ' '), regex=False)]
+                sig_note = 'SIGNIFICANT' if not row.empty and row['Significant'].any() else 'not significant'
+                hierarchy_note = ''
+                if col in factors_in_sig_interactions:
+                    hierarchy_note = '  [WARNING: part of a significant interaction - dropping breaks hierarchy]'
+                print(f'{col}  ({sig_note}){hierarchy_note}')
+
+                keep = input('Keep this factor/interaction? (Y = keep, N = drop): ')
+                if keep == 'Y':
+                    remain_list.append(col)
+                # anything other than 'Y' drops it
+        if remove_input == 'N':
+            remain_list.extend(source_cols)
 
         print('Remaining factors:')
         print(remain_list)
 
-        # -------------------------- REPEAT OF ABOVE
+        # -------------------------- REPEAT ON REDUCED FEATURE SET
 
         for n in range(1, 3):
             poly_2 = PolynomialFeatures(degree=n, include_bias=False)
@@ -244,6 +262,7 @@ class DOE:
 
             osl_model_2 = sm.OLS(self.full_df[self.y_col], x_poly_with_intercept_2).fit()
             print(osl_model_2.summary())
+            print(f'Adjusted R^2: {osl_model_2.rsquared_adj:.4f} | Residual df: {osl_model_2.df_resid}')
 
             all_names_2 = ['Intercept'] + list(feature_names_2)
             p_values_2 = osl_model_2.pvalues.values
@@ -255,63 +274,38 @@ class DOE:
                 'P-value': np.round(p_values_2, 4)
             })
             results_df_2['Significant'] = results_df_2['P-value'] < alpha
-            results_df_2 = results_df_2.sort_values(by='Coefficient', ascending=False)
 
-            temp_df_2 = results_df_2[results_df_2['Feature'] != 'Intercept']
-
-            colors = []
-            for sig in temp_df_2['Significant']:
-                if sig:
-                    colors.append('#1f77b4')
-                else:
-                    colors.append('#f5424e')
-
-            fig, ax = plt.subplots(figsize=(10, 10))
-            bars = ax.bar(temp_df_2['Feature'], temp_df_2['Coefficient'], color=colors)
-            plt.ylabel('Coefficients')
-            plt.axhline(y=0, color='k', lw=0.5)
-            plt.xticks(rotation=90)
-            plt.title(f'Coefficients (blue = p < {alpha}, red = not significant)')
-            plt.tight_layout()
-
-            for rect, p_val in zip(bars, temp_df_2['P-value']):
-                height = rect.get_height()
-                va = 'bottom' if height >= 0 else 'top'
-                plt.text(rect.get_x() + rect.get_width() / 2.0, height, f'p={p_val:.3f}', ha='center', va=va)
-
-            plt.show()
+            self._plot_pareto_coefficients(results_df_2, alpha, order_label=f'(Reduced) | Order = {n}')
             print('=' * 100)
 
-            # need to now look at a residuals plot
+            self._compute_vif(x_poly_df_2)
+
             y_pred_2 = model_2.predict(x_poly_df_2)
-            residuals_2 = y_pred_2 - self.df[self.y_col]
+            residuals_2 = y_pred_2 - self.full_df[self.y_col]
 
             plt.scatter(y_pred_2, residuals_2)
             plt.axhline(y=0, color='k', lw=0.5)
             plt.xlabel('Predicted values')
             plt.ylabel('Residuals')
-            plt.title(f'Residuals vs Fitted | Order = {n}')
+            plt.title(f'Residuals vs Fitted (Reduced) | Order = {n}')
             plt.show()
 
-            # -------------------------- REPEAT OF ABOVE
+            self.final_results = results_df_2  # used later to guide RSM axis selection
 
         print('=' * 100)
         print('Based on the two models ran - select a model to use for RSM:')
 
-        model_pick = input('If you want to use model 1 input 1, etc.,: ')
-        regression_pick = input('If you want to use order 1 input 1, etc.,: ')
+        model_pick = input('If you want to use model 1 (full) input 1, model 2 (reduced) input 2: ')
+        regression_pick = input('If you want to use order 1 input 1, order 2 input 2: ')
 
         self.remain_list = remain_list
 
         if model_pick == '1':
             self.choice = 1
-
         if model_pick == '2':
             self.choice = 2
-
         if regression_pick == '1':
             self.order = 1
-
         if regression_pick == '2':
             self.order = 2
 
@@ -324,80 +318,51 @@ class DOE:
         response_name = []
         levels_list = []
 
-        if hasattr(self, 'full_df'):
-            for col in self.full_df.columns:
-                if col == self.y_col:
-                    pass
-                else:
-                    uniques = pd.unique(self.full_df[col])
-                    no_levels = len(uniques)
-                    levels_list.append(no_levels)
+        source_df = self.full_df if hasattr(self, 'full_df') and self.full_df is not None else self.df
+        cols_to_check = source_df.columns if hasattr(self, 'full_df') and self.full_df is not None else self.x_cols
 
-                    max_response = self.full_df[self.full_df[col] == 1][self.y_col].mean()
-                    min_response = self.full_df[self.full_df[col] == -1][self.y_col].mean()
-                    if no_levels == 3:
-                        mid_response = self.full_df[self.full_df[col] == 0][self.y_col].mean()
-                        all_response_list.append([min_response, mid_response, max_response])
-                    else:
-                        all_response_list.append([min_response, max_response])
+        for col in cols_to_check:
+            if col == self.y_col:
+                continue
+            uniques = pd.unique(source_df[col])
+            no_levels = len(uniques)
+            levels_list.append(no_levels)
 
-                    response_name.append(col)
-        else:
-            for col in self.x_cols:
-                if col == self.y_col:
-                    pass
-                else:
-                    uniques = pd.unique(self.df[col])
-                    no_levels = len(uniques)
+            max_response = source_df[source_df[col] == 1][self.y_col].mean()
+            min_response = source_df[source_df[col] == -1][self.y_col].mean()
+            if no_levels == 3:
+                mid_response = source_df[source_df[col] == 0][self.y_col].mean()
+                all_response_list.append([min_response, mid_response, max_response])
+            else:
+                all_response_list.append([min_response, max_response])
 
-                    levels_list.append(no_levels)
+            response_name.append(col)
 
-                    max_response = self.df[self.df[col] == 1][self.y_col].mean()
-                    min_response = self.df[self.df[col] == -1][self.y_col].mean()
-                    if no_levels == 3:
-                        mid_response = self.df[self.df[col] == 0][self.y_col].mean()
-                        all_response_list.append([min_response, mid_response, max_response])
-                    else:
-                        all_response_list.append([min_response, max_response])
-
-                    response_name.append(col)
-        count=0
+        count = 0
         for responses in all_response_list:
-            if levels_list[count] == 3:
-                xs = [-1, 0, 1]
-            if levels_list[count] == 2:
-                xs = [-1, 1]
+            xs = [-1, 0, 1] if levels_list[count] == 3 else [-1, 1]
             plt.plot(xs, responses)
             plt.title(f'Main Effects: {response_name[count]}')
-            count += 1
             plt.axhline(self.df[self.y_col].max(), color='r', alpha=0.5, linestyle='--')
             plt.axhline(self.df[self.y_col].min(), color='r', alpha=0.5, linestyle='--')
             plt.xlabel('Levels')
             plt.xticks(xs)
             plt.ylabel(self.y_col)
             plt.show()
+            count += 1
 
         self.levels_list = levels_list
         self.all_response_list = all_response_list
 
-
     def interaction_plots(self):
         # need to make pairs between two factors, e.g., if you have A, B, C, D ...
-        # A+B, A+C, A+D, B+C, B+D, C+D
-        # from each factor, need to get its mean response at -1 and +1
-
         factor_combos = list(combinations(self.x_cols, 2))
         print('Combination of factors:')
         print(factor_combos)
         print('=' * 100)
 
-        interactions_list = []
-        # in the order of [A-1, B-1], [A+1, B-1], [A-1, B+1], [A+1, B+1]
-
-        xs = [-1,1]
+        xs = [-1, 1]
         for factor_a, factor_b in factor_combos:
-
-            # combos are in order of interactions list
             combo_1 = self.df[(self.df[factor_a] == -1) & (self.df[factor_b] == -1)][self.y_col].mean()
             combo_2 = self.df[(self.df[factor_a] == -1) & (self.df[factor_b] == 1)][self.y_col].mean()
             combo_3 = self.df[(self.df[factor_a] == 1) & (self.df[factor_b] == -1)][self.y_col].mean()
@@ -436,9 +401,20 @@ class DOE:
             model.fit(x_poly_df, self.full_df[self.y_col])
             x_cols = self.remain_list
 
-        print(
-            'Based on the factors below, input the list index to select the two most critical factors, ensure to press enter between each entry.')
-        print(self.x_cols)
+        print('Based on the factors below, input the list index to select the two most '
+              'critical factors, ensure to press enter between each entry.')
+
+        for i, factor in enumerate(self.x_cols):
+            note = ''
+            if hasattr(self, 'final_results'):
+                involved = self.final_results[
+                    (self.final_results['Feature'].str.contains(factor, regex=False)) &
+                    (self.final_results['Significant'])
+                ]
+                if not involved.empty:
+                    sig_terms = ', '.join(involved['Feature'].tolist())
+                    note = f'  <- involved in significant term(s): {sig_terms}'
+            print(f'{i}: {factor}{note}')
 
         choice = []
         for n in range(2):
@@ -505,7 +481,7 @@ class DOE:
         plt.tight_layout()
         plt.show()
 
-        max_idx = np.argmax(Z)
+        max_idx = np.argmax(Z) 
         opt_a = a_flat[max_idx]
         opt_b = b_flat[max_idx]
         opt_response = y_pred[max_idx]
@@ -519,7 +495,7 @@ class DOE:
 
 t = DOE('reaction_DOE.csv')
 t.interactions()
-t.regression_model(alpha=0.05)
 t.main_effects()
 t.interaction_plots()
+t.regression_model(alpha=0.05)
 t.RSM()
