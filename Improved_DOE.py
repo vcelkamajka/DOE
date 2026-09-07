@@ -14,374 +14,318 @@ from matplotlib.ticker import FormatStrFormatter
 from statsmodels.formula.api import ols
 import re
 
-def clean_col(col):
-    return re.sub(r'\W+', '_', col).strip('_')
-
-# full factorial: all combinations
-# fractional factorial: aliased factors, less runs -> less accurate, removes high level interactions
-# e.g., if we guess that D is confounding w/ A, B and C -> D = A x B x C
-# so if A = -1, B = 1 and C = 1, D = -1
-# Central Composite Design (CCD) : add axial points at typically +- 1.414
-# Box-Behnken : combinations kept within +- 1
-
-# helps make the necessary confounded factors, i.e., AB, BC, ABC, ABCD... (currently only goes to 4)
-def get_factor_pairs(factor_list):
-    return (list(combinations(factor_list, 2)) + list(combinations(factor_list, 3)) + list(
-        combinations(factor_list, 4)))
-
+np.set_printoptions(legacy='1.25')
 
 class DOE:
-    def __init__(self, file_name, df=None, x_cols=None, y_col=None):
-        self.file_name = file_name
+    def __init__(self, doe_file, x_cols=None, y_col=None,levels_list=None, all_response_list=None, full_df=None, interaction_cols=None):
+        self.doe_file = doe_file
+        self.df = pd.read_csv(self.doe_file)
         self.x_cols = x_cols
         self.y_col = y_col
-        self.df = pd.read_csv(file_name)
-
-        self.x_cols = []
-        self.y_col = []
+        self.df.columns = self.df.columns.str.strip()
+        self.levels_list = levels_list
+        self.all_response_list = all_response_list
+        self.full_df = full_df
+        self.interaction_cols = interaction_cols
 
         print(self.df)
+        print('='*100)
 
-        for col in self.df.columns:
-            self.x_cols.append(col)
-        self.x_cols.pop(-1)
+        # assume that final col is response, rest are variables
+        col_no = len(self.df.columns)
+        x_col = []
+        for i in range(col_no - 1):
+            x_col.append(self.df.columns[i])
+
+        self.x_cols = x_col
         self.y_col = self.df.columns[-1]
 
-        print('=' * 50)
-        print(f'X-features: {self.x_cols}')
-        print(f'Y-feature: {self.y_col}')
-        print('=' * 50)
-        print('Converted DF:')
-        # need to standardise values to 1 and -1
-        # get max, min and else values (+1, -1 and 0)
-        # once values established must map values to +1, -1 and 0
-
+        # need to convert high, med. low to +1, 0, -1
         for col in self.x_cols:
-            max_val = max(self.df[col])
-            min_val = min(self.df[col])
-            map_dict = {max_val: 1, min_val: -1}
 
-            self.df[col] = self.df[col].map(map_dict).fillna(0)
+            max_val = self.df[col].max()
+            min_val = self.df[col].min()
 
+            mapping = {
+                max_val: 1,
+                min_val: -1
+            }
+
+            self.df[col] = self.df[col].map(mapping).fillna(0)
+
+        print('Converted DF:')
         print(self.df)
-        print('=' * 50)
+        print('=' * 100)
 
-    def stats(self):
 
-        temp = self.df.copy()
-        temp = self.df.rename(columns={col: clean_col(col) for col in temp.columns})
-        temp_y_col = clean_col(self.y_col)
-        temp_x_cols = [clean_col(c) for c in self.x_cols]
+    def interactions(self):
+        # get interactions which may be feasible, e.g.,
+        # Temp. x Catalyst_mol%
+        # give choice of automatic vs manual
 
-        formula = f"{temp_y_col} ~ {' + '.join(temp_x_cols)}"
-        anova_model = ols(formula, data=temp).fit()
-        anova_table = sm.stats.anova_lm(anova_model, typ=2)
-        print(anova_table)
+        combos = self.x_cols
+        all_combos = list(combinations(combos, 2))
 
-    def add_interactions(self):
-        # e.g., if you have factors A, B, C -> need to construct factors AB, AC, BC and ABC
-        # if A = -1 and B = -1, AB = +1
-        factor_list = self.x_cols
-        start_pair = get_factor_pairs(factor_list)
+        manual = input('Do you want automatic (A) or manual (M) interaction selection? ')
 
-        pre_join_list = []
-        new_factor_list = []
-        for factors in start_pair:
-            pairs_list = []
-            for pairs in factors:
-                pairs_list.append(pairs)
-                if len(factors) == 2 and len(pairs_list) == 2:
-                    res = pairs_list[0] + ' x ' + pairs_list[1]
-                    new_factor_list.append(res)
-                if len(factors) == 3 and len(pairs_list) == 3:
-                    res = pairs_list[0] + ' x ' + pairs_list[1] + ' x ' + pairs_list[2]
-                    new_factor_list.append(res)
-                if len(factors) == 4 and len(pairs_list) == 4:
-                    res = pairs_list[0] + ' x ' + pairs_list[1] + ' x ' + pairs_list[2] + ' x ' + pairs_list[3]
-                    new_factor_list.append(res)
-            pre_join_list.append(list(factors))  # this list is the list of each combination
+        if manual == 'M':
+            print(
+                f'Based on the following {len(all_combos)} combinations, choose which to keep by inputting (Y) or (N) for each combination:')
+        if manual == 'A':
+            print(f'{len(all_combos)} combinations will be automatically selected.')
 
-        print(f'Following new factors have been made in the form AB, ABC, etc., : \n{new_factor_list}')
+        combo_list = []
 
-        for pair in pre_join_list:
-            if len(pair) == 2:
-                # col_set_1 = pair[0], pair[1]
-                # print('col_set_1: ', col_set_1)
-                # I AM THE GOAT FOR FIGURING TS OUT OMFD
-                self.df[pair[0] + ' x ' + pair[1]] = self.df[pair[0]] * self.df[pair[1]]
+        for combo in all_combos:
+            print(combo)
 
-            if len(pair) == 3:
-                # col_set_2 = pair[0], pair[1], pair[2]
-                # print('col_set_2: ', col_set_2)
-                self.df[pair[0] + ' x ' + pair[1] + ' x ' + pair[2]] = self.df[pair[0]] * self.df[pair[1]] * self.df[
-                    pair[2]]
+            if manual == 'A':
+                combo_list = all_combos
 
-            if len(pair) == 4:
-                # print(pair[0], pair[1], pair[2], pair[3])
-                self.df[pair[0] + ' x ' + pair[1] + ' x ' + pair[2] + ' x ' + pair[3]] = self.df[pair[0]] * self.df[
-                    pair[1]] * self.df[
-                                                                                             pair[2]] * self.df[pair[3]]
+            if manual == 'M':
+                chosen = input('')
+                if chosen == 'Y':
+                    combo_list.append(combo)
+                else:
+                    pass
 
-        # for new_factor in new_factor_list:
-        #     self.df[new_factor] = self.df.Temperature * self.df.Stir_Rate
+        if len(combo_list) == 0:
+            print('No combinations selected.')
+            self.full_df = self.df
+            pass
+        else:
 
-        len_of_cols = len(self.df.columns)
-        temp_y = self.df.pop(self.y_col)
-        self.df.insert(len_of_cols - 1, temp_y.name, temp_y)
-        print(self.df)
-        self.df.to_csv('factors.csv')
+            if len(combo_list) > 0:
+                interactions_df = pd.DataFrame()
+                self.interactions_df = interactions_df
+                self.new_cols = []
 
-        print(
-            f'Of the following, choose what interactions to keep, including too many will lead to incomprehensible results!\n {new_factor_list}')
-        print(
-            "Please input your selected features one-by-one, i.e., for option '1', input 0 and click enter. To end please input 'END'.")
+                for combo in combo_list:
+                    # unpacks tuple into list -> (A, B) => [A, B]
+                    curr_combo = [*combo]
 
-        keep_list = []
-        while True:
-            keep = input('')
-            keep_list.append(keep)
-            if keep == 'END':
-                keep_list.pop(-1)
-                break
+                    col1, col2 = curr_combo
+                    new_col_name = col1 + ' x ' + col2
+                    self.new_cols.append(new_col_name)
 
-        target_col = self.y_col
+                    self.interactions_df[new_col_name] = self.df[col1] * self.df[col2]
 
-        for n in keep_list:
-            col_to_add = new_factor_list[int(n)]
-            self.x_cols.append(col_to_add)
+                self.full_df = pd.concat([self.df, self.interactions_df], axis=1)
+                updated_order = [col for col in self.full_df if col != self.y_col] + [self.y_col]
+                self.full_df = self.full_df[updated_order]
 
-        print(self.x_cols)
+                # self.full_df.to_csv('TEST.csv', index=False)
+                print('=' * 100)
 
-        self.df = self.df[self.x_cols + [target_col]]
-        self.y_col = target_col
+                col_no = len(self.full_df.columns)
+                x_col = []
+                for i in range(col_no - 1):
+                    x_col.append(self.full_df.columns[i])
 
-        self.y_col = self.df.columns[-1]
+                self.interaction_cols = x_col
 
-        print('=' * 50)
+                return self.full_df
+
+    def regression_model(self,alpha = 0.05):
+
+        for n in range(1, 3):
+            poly = PolynomialFeatures(degree=n, include_bias=False)
+
+            if self.interaction_cols is None:
+                print(self.x_cols)
+                print(self.full_df)
+
+                x_poly = poly.fit_transform(self.full_df[self.x_cols])
+                feature_names = poly.get_feature_names_out(self.x_cols)
+            else:
+                x_poly = poly.fit_transform(self.full_df[self.interaction_cols])
+                feature_names = poly.get_feature_names_out(self.interaction_cols)
+
+            x_poly_df = pd.DataFrame(x_poly, columns=feature_names, index=self.full_df.index)
+            x_poly_with_intercept = sm.add_constant(x_poly_df, has_constant='add')
+
+            model = LinearRegression()
+            model.fit(x_poly_df, self.full_df[self.y_col])
+
+            print(f'Polynomial degree: {n}')
+
+            osl_model = sm.OLS(self.full_df[self.y_col], x_poly_with_intercept).fit()
+            print(osl_model.summary())
+
+            all_names = ['Intercept'] + list(feature_names)
+            p_values = osl_model.pvalues.values
+            coefs = osl_model.params.values
+
+            results_df = pd.DataFrame({
+                'Feature': all_names,
+                'Coefficient': np.round(coefs, 4),
+                'P-value': np.round(p_values, 4)
+            })
+            results_df['Significant'] = results_df['P-value'] < alpha
+            results_df = results_df.sort_values(by='Coefficient', ascending=False)
+
+            temp_df = results_df[results_df['Feature'] != 'Intercept']
+
+            colors = []
+            for sig in temp_df['Significant']:
+                if sig:
+                    colors.append('#1f77b4')
+                else:
+                    colors.append('#f5424e')
+
+            fig, ax = plt.subplots(figsize=(10, 10))
+            bars = ax.bar(temp_df['Feature'], temp_df['Coefficient'], color=colors)
+            plt.ylabel('Coefficients')
+            plt.axhline(y=0, color='k', lw=0.5)
+            plt.xticks(rotation=90)
+            plt.title(f'Coefficients (blue = p < {alpha}, red = not significant)')
+            plt.tight_layout()
+
+            for rect, p_val in zip(bars, temp_df['P-value']):
+                height = rect.get_height()
+                va = 'bottom' if height >= 0 else 'top'
+                plt.text(rect.get_x() + rect.get_width() / 2.0, height, f'p={p_val:.3f}', ha='center', va=va)
+
+            plt.show()
+            print('=' * 100)
+
+            # need to now look at a residuals plot
+            y_pred = model.predict(x_poly_df)
+            residuals = y_pred - self.df[self.y_col]
+
+            plt.scatter(y_pred, residuals)
+            plt.axhline(y=0, color='k', lw=0.5)
+            plt.xlabel('Predicted values')
+            plt.ylabel('Residuals')
+            plt.title(f'Residuals vs Fitted | Order = {n}')
+            plt.show()
+
+        print('Based on the information provided, do you wish to eliminate any factors/interactions?:')
+        remove_input = input('Input (Y) to remove factors/interactions or, (N) to continue: ')
+        remain_list = []
+        if remove_input == 'Y':
+            if self.interaction_cols is not None:
+                for col in self.interaction_cols:
+                    print(col)
+                    add = input('')
+                    if add == 'Y':
+                        pass
+                    else:
+                        remain_list.append(col)
+            else:
+                for col in self.x_cols:
+                    print(col)
+                    add = input('')
+                    if add == 'Y':
+                        pass
+                    else:
+                        remain_list.append(col)
+        print('Remaining factors:')
+        print(remain_list)
 
     def main_effects(self):
+        # get mean response at each level (y) and plot against (-1,0,1)
 
-        for col in self.x_cols:
-            max_ys = []
-            min_ys = []
-            zero_ys = []
+        all_response_list = []
+        response_name = []
+        levels_list = []
 
-            for n in range(len(self.df[col])):
-                if self.df[col][n] == 1:
-                    max_ys.append(self.df[self.y_col][n])
-                if self.df[col][n] == -1:
-                    min_ys.append(self.df[self.y_col][n])
-                if self.df[col][n] == 0:
-                    zero_ys.append(self.df[self.y_col][n])
+        if hasattr(self, 'full_df'):
+            for col in self.full_df.columns:
+                if col == self.y_col:
+                    pass
+                else:
+                    uniques = pd.unique(self.full_df[col])
+                    no_levels = len(uniques)
 
-            if len(zero_ys) > 0:
+                    levels_list.append(no_levels)
+
+                    max_response = self.full_df[self.full_df[col] == 1][self.y_col].mean()
+                    min_response = self.full_df[self.full_df[col] == -1][self.y_col].mean()
+                    if no_levels == 3:
+                        mid_response = self.full_df[self.full_df[col] == 0][self.y_col].mean()
+                        all_response_list.append([min_response, mid_response, max_response])
+                    else:
+                        all_response_list.append([min_response, max_response])
+
+                    response_name.append(col)
+        else:
+            for col in self.x_cols:
+                if col == self.y_col:
+                    pass
+                else:
+                    uniques = pd.unique(self.df[col])
+                    no_levels = len(uniques)
+
+                    levels_list.append(no_levels)
+
+                    max_response = self.df[self.df[col] == 1][self.y_col].mean()
+                    min_response = self.df[self.df[col] == -1][self.y_col].mean()
+                    if no_levels == 3:
+                        mid_response = self.df[self.df[col] == 0][self.y_col].mean()
+                        all_response_list.append([min_response, mid_response, max_response])
+                    else:
+                        all_response_list.append([min_response, max_response])
+
+                    response_name.append(col)
+        count=0
+        for responses in all_response_list:
+            if levels_list[count] == 3:
                 xs = [-1, 0, 1]
-                ys = [np.mean(min_ys), np.mean(zero_ys), np.mean(max_ys)]
-            else:
+            if levels_list[count] == 2:
                 xs = [-1, 1]
-                ys = [np.mean(min_ys), np.mean(max_ys)]
-
-            fig, ax = plt.subplots()
-            plt.plot(xs, ys)
-            plt.title('Main Effects Plot')
-            ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-            plt.xticks([-1, 0, 1])
-            plt.xlabel(self.df[col].name)
-            plt.ylabel(self.df[self.y_col].name)
+            plt.plot(xs, responses)
+            plt.title(f'Main Effects: {response_name[count]}')
+            count += 1
+            plt.axhline(self.df[self.y_col].max(), color='r', alpha=0.5, linestyle='--')
+            plt.axhline(self.df[self.y_col].min(), color='r', alpha=0.5, linestyle='--')
+            plt.xlabel('Levels')
+            plt.xticks(xs)
+            plt.ylabel(self.y_col)
             plt.show()
 
-            ys = []
+        self.levels_list = levels_list
+        self.all_response_list = all_response_list
+
 
     def interaction_plots(self):
-        # get the equation from coefficients and plot with alternating
-        pass
+        # need to make pairs between two factors, e.g., if you have A, B, C, D ...
+        # A+B, A+C, A+D, B+C, B+D, C+D
+        # from each factor, need to get its mean response at -1 and +1
 
-    def get_trend(self, n, alpha=0.05, x_vals=None, y_vals=None, model=None,x_poly_df=None):
-        self.x_vals = x_vals
-        self.y_vals = y_vals
-        self.model = model
+        factor_combos = list(combinations(self.x_cols, 2))
+        print('Combination of factors:')
+        print(factor_combos)
 
-        self.x_vals = self.df[self.x_cols]
-        self.y_vals = self.df[self.y_col]
+        interactions_list = []
+        # in the order of [A-1, B-1], [A+1, B-1], [A-1, B+1], [A+1, B+1]
 
-        poly = PolynomialFeatures(n, include_bias=False)
-        self.X_poly = poly.fit_transform(self.x_vals)
-        x_poly = poly.fit_transform(self.x_vals)
-        self.model = LinearRegression()
-        self.model.fit(x_poly, self.y_vals)
-        y_pred = self.model.predict(x_poly)
-        intercept = self.model.intercept_
+        xs = [-1,1]
+        for factor_a, factor_b in factor_combos:
 
-        x_sm = sm.add_constant(x_poly, has_constant='add')
-        self.osl_model = sm.OLS(self.y_vals, x_sm).fit()
-        print(self.osl_model.summary())
+            # combos are in order of interactions list
+            # starting w/ mins of A and then maxs of A
+            combo_1 = self.df[(self.df[factor_a] == -1) & (self.df[factor_b] == -1)][self.y_col].mean()
+            combo_2 = self.df[(self.df[factor_a] == -1) & (self.df[factor_b] == 1)][self.y_col].mean()
+            combo_3 = self.df[(self.df[factor_a] == 1) & (self.df[factor_b] == -1)][self.y_col].mean()
+            combo_4 = self.df[(self.df[factor_a] == 1) & (self.df[factor_b] == 1)][self.y_col].mean()
 
-        with open("OLS_summary.csv", "w") as f:
-            f.write(self.osl_model.summary().as_csv())
-
-        # model_coefficients = self.model.coef_
-        feature_names = poly.get_feature_names_out(self.x_vals.columns)
-        self.x_poly_df = pd.DataFrame(x_poly,columns=feature_names)
-        all_names = ['Intercept'] + list(feature_names)
-
-        p_values = self.osl_model.pvalues.values
-        coefs = self.osl_model.params.values
-
-        ci = self.osl_model.conf_int()
-
-        results_df = pd.DataFrame({
-            'Feature': all_names,
-            'Coefficient': np.round(coefs, 4),
-            'P-value': np.round(p_values, 4),
-            f'{alpha / 2} CI': np.round(ci[0], 4),
-            f'{1 - alpha / 2} CI': np.round(ci[1], 4),
-        })
-
-        results_df['Significant'] = results_df['P-value'] < alpha
-        results_df = results_df.sort_values(by='Coefficient', ascending=False)
-        print('Results dataframe:')
-        print(results_df)
-
-        results_df.to_csv('results.csv')
-
-        colors = []
-        for sig in results_df['Significant']:
-            if sig:
-                colors.append('#1f77b4')
-            else:
-                colors.append('#f5424e')
-
-        fig, ax = plt.subplots(figsize=(10, 10))
-        temp = results_df.drop('const')
-        plt.bar(temp['Feature'], temp['Coefficient'], color=colors)
-        plt.xlabel('Features')
-        plt.ylabel('Coefficients')
-        plt.axhline(y=0, color='k', lw=0.5)
-        plt.xticks(rotation=90)
-        plt.title(f'Coefficients (blue = p < {alpha}, red = not significant)')
-        plt.tight_layout()
-        plt.show()
-
-        r2 = r2_score(self.y_vals, y_pred)
-        mse = mean_squared_error(self.y_vals, y_pred)
-        print('=' * 50)
-        print(f'R²: {r2:.2f}')
-        print(f'Adjusted R²: {self.osl_model.rsquared_adj:.3f}')
-        print(f'MSE: {mse:.2f}')
-        print('=' * 50)
-
-        vif_data = pd.DataFrame()
-        vif_data['Feature'] = self.x_cols
-        vif_data['VIF'] = [variance_inflation_factor(self.x_vals.values, i) for i in range(len(self.x_cols))]
-        print('VIF of 1 = no multicollinearity, VIF of 1-5 = moderate collinearity, VIF >5-10 = Serious collinearity!')
-        print(vif_data)
-
-        print('=' * 50)
-
-        self.results_df = results_df
-        return self.results_df
-
-    def eliminate_factors(self, sig_factors=None,remaining_factors=3):
-        self.remaining_factors = remaining_factors
-        self.sig_factors = sig_factors
-        # eliminate factors to a user defined level - default is 3
-
-        sig_factors = self.results_df.loc[self.results_df['Significant'] == True, 'Feature']
-        sig_factors = sig_factors.drop('const')
-        display(sig_factors)
-
-        if len(sig_factors) > remaining_factors:
-            print(f'Excess factors remain - need to remove {len(sig_factors) - remaining_factors}!')
-        if len(sig_factors) < remaining_factors:
-            print(f'Satisfactory amount of factors remain.')
-
-        selection_list = []
-        for features in sig_factors:
-            selection = self.results_df.loc[self.results_df['Feature'] == features]
-            selection_list.append(selection)
-            display(selection)
-
-        temp = self.results_df
-        temp = temp.drop('const')
-        temp['Coefficient'] = np.abs(temp['Coefficient'])
-
-        manual_query = input('Do you wish to automatically eliminate factors based on ascending coefficient value? (Y/N): ')
-
-        if manual_query == 'N':
-            count = 0
-            to_drop = []
-            for n in range(len(sig_factors) - remaining_factors):
-                drop = input(
-                    f"Based on the results shown above, please drop {len(sig_factors) - remaining_factors + count} factors by inputting the axis value, e.g., x1, click enter and if required input another afterwards e.g., x2... ")
-                count -= 1
-                to_drop.append(drop)
-
-            for drop in to_drop:
-                sig_factors = sig_factors.drop(drop)
-            print('Remaining features:')
-            display(sig_factors)
-            self.sig_factors = sig_factors
-
-        if manual_query == 'Y':
-            temp = temp.sort_values(by='Coefficient', ascending=False)
-            index_range = len(sig_factors) - (remaining_factors+1)
-            temp.drop(temp.index[index_range:], inplace=True)
-            print(temp)
-            sig_factors = temp['Feature']
-            self.sig_factors = sig_factors
-
-        print('=' * 50)
-
-        x_reduced = self.x_poly_df[sig_factors]
-
-        x_reduced_sm = sm.add_constant(x_reduced,has_constant='add')
-        reduced_model = sm.OLS(self.y_vals, x_reduced_sm).fit()
-        print(reduced_model.summary())
-
-        print(f'Full model R²: {self.osl_model.rsquared:.2f}, Adj R²: {self.osl_model.rsquared_adj:.3f}')
-        print(f'Reduced model R²: {reduced_model.rsquared:.2f}, Adj R²: {reduced_model.rsquared_adj:.3f}')
-
-        with open("Adjusted_OLS_summary.csv", "w") as f:
-            f.write(self.osl_model.summary().as_csv())
-
-        self.x_cols = []
-        for n in self.sig_factors:
-            self.x_cols.append(n)
-
-
-    def RSM(self):
-
-        x_coefs_df = pd.DataFrame()
-        x_coefs_df = self.results_df[self.results_df['Feature'].isin(self.x_cols)]
-        x_coefs_df = x_coefs_df.drop(['P-value','0.025 CI','0.975 CI', 'Significant'], axis='columns')
-        print(x_coefs_df)
-        temp = x_coefs_df
-
-        fig, ax = plt.subplots(figsize=(10, 10), kwargs={'projection':'3d'})
-
-        if self.remaining_factors == 3:
-
-            x = np.linspace()
-            y = np.linspace()
-            x,y = np.meshgrid(x,y)
-
-            z =
-
-            ax.plot_surface(x,y,z, cmap='inferno',antialiased=False)
-
+            plt.plot(xs, [combo_1, combo_2], label=f'{factor_a} = -1')
+            plt.plot(xs, [combo_3, combo_4], label=f'{factor_a} = 1')
+            plt.xlabel(factor_b)
+            plt.ylabel(self.y_col)
+            plt.legend()
+            plt.xticks(xs)
+            plt.title(f'Interaction: {factor_a} x {factor_b}')
+            plt.axhline(self.df[self.y_col].max(), color='r', alpha=0.5, linestyle='--')
+            plt.axhline(self.df[self.y_col].min(), color='r', alpha=0.5, linestyle='--')
             plt.show()
 
 
-
-
-# need to construct 2D &/or 3D RSM of results and maximise/minimise
 
 
 t = DOE('reaction_DOE.csv')
-t.add_interactions()
-t.stats()
+t.interactions()
+t.regression_model(alpha=0.05)
 t.main_effects()
 t.interaction_plots()
-t.get_trend(2)
-t.eliminate_factors(remaining_factors=3)
-t.RSM()
