@@ -1,18 +1,13 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from IPython.display import display
 import pandas as pd
 import statsmodels.api as sm
 from itertools import combinations, permutations
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from scipy.stats import f_oneway
 from scipy.stats import shapiro
-from matplotlib.ticker import FormatStrFormatter
-from statsmodels.formula.api import ols
-import re
 
 np.set_printoptions(legacy='1.25')
 
@@ -220,8 +215,107 @@ class DOE:
                         pass
                     else:
                         remain_list.append(col)
+        if remove_input == 'N':
+            if self.interaction_cols is None:
+                remain_list.extend(self.x_cols)
+            else:
+                remain_list.extend(self.interaction_cols)
+
+        #results_df['Significant'] = results_df['P-value'] < alpha
+
         print('Remaining factors:')
         print(remain_list)
+
+        # -------------------------- REPEAT OF ABOVE
+
+        for n in range(1, 3):
+            poly_2 = PolynomialFeatures(degree=n, include_bias=False)
+
+            x_poly_2 = poly_2.fit_transform(self.full_df[remain_list])
+            feature_names_2 = poly_2.get_feature_names_out(remain_list)
+
+            x_poly_df_2 = pd.DataFrame(x_poly_2, columns=feature_names_2, index=self.full_df.index)
+            x_poly_with_intercept_2 = sm.add_constant(x_poly_df_2, has_constant='add')
+
+            model_2 = LinearRegression()
+            model_2.fit(x_poly_df_2, self.full_df[self.y_col])
+
+            print(f'Polynomial degree: {n}')
+
+            osl_model_2 = sm.OLS(self.full_df[self.y_col], x_poly_with_intercept_2).fit()
+            print(osl_model_2.summary())
+
+            all_names_2 = ['Intercept'] + list(feature_names_2)
+            p_values_2 = osl_model_2.pvalues.values
+            coefs_2 = osl_model_2.params.values
+
+            results_df_2 = pd.DataFrame({
+                'Feature': all_names_2,
+                'Coefficient': np.round(coefs_2, 4),
+                'P-value': np.round(p_values_2, 4)
+            })
+            results_df_2['Significant'] = results_df_2['P-value'] < alpha
+            results_df_2 = results_df_2.sort_values(by='Coefficient', ascending=False)
+
+            temp_df_2 = results_df_2[results_df_2['Feature'] != 'Intercept']
+
+            colors = []
+            for sig in temp_df_2['Significant']:
+                if sig:
+                    colors.append('#1f77b4')
+                else:
+                    colors.append('#f5424e')
+
+            fig, ax = plt.subplots(figsize=(10, 10))
+            bars = ax.bar(temp_df_2['Feature'], temp_df_2['Coefficient'], color=colors)
+            plt.ylabel('Coefficients')
+            plt.axhline(y=0, color='k', lw=0.5)
+            plt.xticks(rotation=90)
+            plt.title(f'Coefficients (blue = p < {alpha}, red = not significant)')
+            plt.tight_layout()
+
+            for rect, p_val in zip(bars, temp_df_2['P-value']):
+                height = rect.get_height()
+                va = 'bottom' if height >= 0 else 'top'
+                plt.text(rect.get_x() + rect.get_width() / 2.0, height, f'p={p_val:.3f}', ha='center', va=va)
+
+            plt.show()
+            print('=' * 100)
+
+            # need to now look at a residuals plot
+            y_pred_2 = model_2.predict(x_poly_df_2)
+            residuals_2 = y_pred_2 - self.df[self.y_col]
+
+            plt.scatter(y_pred_2, residuals_2)
+            plt.axhline(y=0, color='k', lw=0.5)
+            plt.xlabel('Predicted values')
+            plt.ylabel('Residuals')
+            plt.title(f'Residuals vs Fitted | Order = {n}')
+            plt.show()
+
+            # -------------------------- REPEAT OF ABOVE
+
+        print('=' * 100)
+        print('Based on the two models ran - select a model to use for RSM:')
+
+        model_pick = input('If you want to use model 1 input 1, etc.,: ')
+        regression_pick = input('If you want to use order 1 input 1, etc.,: ')
+
+        self.remain_list = remain_list
+
+        if model_pick == '1':
+            self.choice = 1
+
+        if model_pick == '2':
+            self.choice = 2
+
+        if regression_pick == '1':
+            self.order = 1
+
+        if regression_pick == '2':
+            self.order = 2
+
+        print('=' * 100)
 
     def main_effects(self):
         # get mean response at each level (y) and plot against (-1,0,1)
@@ -237,7 +331,6 @@ class DOE:
                 else:
                     uniques = pd.unique(self.full_df[col])
                     no_levels = len(uniques)
-
                     levels_list.append(no_levels)
 
                     max_response = self.full_df[self.full_df[col] == 1][self.y_col].mean()
@@ -296,6 +389,7 @@ class DOE:
         factor_combos = list(combinations(self.x_cols, 2))
         print('Combination of factors:')
         print(factor_combos)
+        print('=' * 100)
 
         interactions_list = []
         # in the order of [A-1, B-1], [A+1, B-1], [A-1, B+1], [A+1, B+1]
@@ -304,7 +398,6 @@ class DOE:
         for factor_a, factor_b in factor_combos:
 
             # combos are in order of interactions list
-            # starting w/ mins of A and then maxs of A
             combo_1 = self.df[(self.df[factor_a] == -1) & (self.df[factor_b] == -1)][self.y_col].mean()
             combo_2 = self.df[(self.df[factor_a] == -1) & (self.df[factor_b] == 1)][self.y_col].mean()
             combo_3 = self.df[(self.df[factor_a] == 1) & (self.df[factor_b] == -1)][self.y_col].mean()
@@ -321,7 +414,107 @@ class DOE:
             plt.axhline(self.df[self.y_col].min(), color='r', alpha=0.5, linestyle='--')
             plt.show()
 
+    def RSM(self):
 
+        if self.choice == 1:
+            poly = PolynomialFeatures(degree=self.order, include_bias=False)
+            x_poly = poly.fit_transform(self.full_df[self.x_cols])
+            feature_names = poly.get_feature_names_out(self.x_cols)
+            x_poly_df = pd.DataFrame(x_poly, columns=feature_names, index=self.full_df.index)
+            x_poly_with_intercept = sm.add_constant(x_poly_df, has_constant='add')
+            model = LinearRegression()
+            model.fit(x_poly_df, self.full_df[self.y_col])
+            x_cols = self.x_cols
+
+        if self.choice == 2:
+            poly = PolynomialFeatures(degree=self.order, include_bias=False)
+            x_poly = poly.fit_transform(self.full_df[self.remain_list])
+            feature_names = poly.get_feature_names_out(self.remain_list)
+            x_poly_df = pd.DataFrame(x_poly, columns=feature_names, index=self.full_df.index)
+            x_poly_with_intercept = sm.add_constant(x_poly_df, has_constant='add')
+            model = LinearRegression()
+            model.fit(x_poly_df, self.full_df[self.y_col])
+            x_cols = self.remain_list
+
+        print(
+            'Based on the factors below, input the list index to select the two most critical factors, ensure to press enter between each entry.')
+        print(self.x_cols)
+
+        choice = []
+        for n in range(2):
+            selected_cols = input('')
+            choice.append(selected_cols)
+
+        factor_a = self.x_cols[int(choice[0])]
+        factor_b = self.x_cols[int(choice[1])]
+
+        factor_a_vals = np.linspace(-1, 1, 50)
+        factor_b_vals = np.linspace(-1, 1, 50)
+
+        a, b = np.meshgrid(factor_a_vals, factor_b_vals)
+        a_flat = a.ravel()
+        b_flat = b.ravel()
+
+        base_values = {}
+        for factor in x_cols:
+            if ' x ' not in factor:
+                if factor == factor_a:
+                    base_values[factor] = a_flat
+                elif factor == factor_b:
+                    base_values[factor] = b_flat
+                else:
+                    print(f'{factor} will be kept constant at 0.')
+                    base_values[factor] = np.full_like(a_flat, 0.0)
+
+        raw_cols = {}
+        for factor in x_cols:
+            if ' x ' in factor:
+                parts = factor.split(' x ')
+                product = np.ones_like(a_flat)
+                for p in parts:
+                    product = product * base_values[p]
+                raw_cols[factor] = product
+            else:
+                raw_cols[factor] = base_values[factor]
+
+        raw_matrix = np.column_stack([raw_cols[factor] for factor in x_cols])
+
+        x_poly_grid = poly.transform(raw_matrix)
+        y_pred = model.predict(x_poly_grid)
+        Z = y_pred.reshape(a.shape)
+
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(projection='3d')
+        surf = ax.plot_surface(a, b, Z, cmap='viridis', edgecolor='none', alpha=0.9)
+        ax.set_xlabel(factor_a)
+        ax.set_ylabel(factor_b)
+        ax.set_zlabel(self.y_col)
+        ax.set_title(f'Response Surface: {factor_a} x {factor_b}')
+        fig.colorbar(surf, shrink=0.5, aspect=10, label=self.y_col)
+        plt.tight_layout()
+        plt.show()
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        contour = ax.contourf(a, b, Z, levels=20, cmap='viridis')
+        lines = ax.contour(a, b, Z, levels=10, colors='k', linewidths=0.5)
+        ax.clabel(lines, inline=True, fontsize=8)
+        ax.set_xlabel(factor_a)
+        ax.set_ylabel(factor_b)
+        ax.set_title(f'Contour Plot: {factor_a} x {factor_b}')
+        fig.colorbar(contour, label=self.y_col)
+        plt.tight_layout()
+        plt.show()
+
+        max_idx = np.argmax(Z)
+        opt_a = a_flat[max_idx]
+        opt_b = b_flat[max_idx]
+        opt_response = y_pred[max_idx]
+
+        print(f'Best point found on this grid: {factor_a} = {opt_a:.3f}, {factor_b} = {opt_b:.3f}, '
+              f'predicted {self.y_col} = {opt_response:.3f}')
+
+        ax.plot(opt_a, opt_b, 'r*', markersize=15, label='Grid optimum')
+        ax.legend()
 
 
 t = DOE('reaction_DOE.csv')
@@ -329,3 +522,4 @@ t.interactions()
 t.regression_model(alpha=0.05)
 t.main_effects()
 t.interaction_plots()
+t.RSM()
